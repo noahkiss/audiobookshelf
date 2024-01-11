@@ -43,7 +43,6 @@ jobs:
           fi
 
       - name: Run Docker buildx action for release
-        if: steps.docker_check.outputs.image_exists == 'false'
         run: |
           docker buildx build \
           --platform linux/amd64,linux/arm64 \

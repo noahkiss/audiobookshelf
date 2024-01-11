@@ -6,7 +6,7 @@ mkdir -p \
     /config/ \
     /audiobooks/ \
     /podcasts/
-    
+
 # permissions
 chown -R abc:abc \
     /config \
