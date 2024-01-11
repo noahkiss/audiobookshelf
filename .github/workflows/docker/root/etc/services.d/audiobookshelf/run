@@ -1,0 +1,7 @@
+#!/usr/bin/with-contenv bash
+
+
+PORT=${PORT:-80}
+
+exec \
+    s6-setuidgid abc npm --prefix /app --cache /app start --port "${PORT}"

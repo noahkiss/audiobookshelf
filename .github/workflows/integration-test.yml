@@ -11,9 +11,9 @@ jobs:
     name: build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: setup nade
+      - name: setup node
         uses: actions/setup-node@v3
         with:
           node-version: 16
