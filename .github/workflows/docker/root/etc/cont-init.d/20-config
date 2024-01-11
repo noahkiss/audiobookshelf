@@ -13,3 +13,10 @@ chown -R abc:abc \
     /metadata \
     /audiobooks \
     /podcasts
+
+chown -R audiobookshelf:audiobookshelf \
+    /config \
+    /metadata \
+    /audiobooks \
+    /podcasts ||
+      echo "audiobookshelf user not found"

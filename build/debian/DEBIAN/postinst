@@ -44,4 +44,10 @@ if [ ! -d "$ABS_LOG_DIR" ]; then
   chown -R 'audiobookshelf:audiobookshelf' "$ABS_LOG_DIR"
 fi
 
+chown -R audiobookshelf:audiobookshelf \
+    /config \
+    /metadata \
+    /audiobooks \
+    /podcasts
+
 start_service 'audiobookshelf'
