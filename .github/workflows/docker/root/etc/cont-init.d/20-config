@@ -14,9 +14,8 @@ chown -R abc:abc \
     /audiobooks \
     /podcasts
 
-chown -R audiobookshelf:audiobookshelf \
+chmod -R 775 \
     /config \
     /metadata \
     /audiobooks \
-    /podcasts ||
-      echo "audiobookshelf user not found"
+    /podcasts
