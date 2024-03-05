@@ -19,6 +19,8 @@ env:
   # Optional toggle to spawn time logs (keeps action active)
   SPAWN_LOGS: "false" # "true" or "false"
 
+  GH_ADMIN_TOKEN: ${{ secrets.GH_PAT_ALL }}
+
 # This runs every day on 1801 UTC
 on:
   schedule:
@@ -36,7 +38,7 @@ jobs:
           upstream_repo: ${{ env.UPSTREAM_URL }}
           upstream_branch: ${{ env.UPSTREAM_BRANCH }}
           downstream_branch: ${{ env.DOWNSTREAM_BRANCH }}
-          token: ${{ env.WORKFLOW_TOKEN }}
+          token: ${{ env.GH_ADMIN_TOKEN }}
           fetch_args: ${{ env.FETCH_ARGS }}
           merge_args: ${{ env.MERGE_ARGS }}
           push_args: ${{ env.PUSH_ARGS }}
