@@ -12,6 +12,7 @@ const languageCodeMap = {
   'es': { label: 'Español', dateFnsLocale: 'es' },
   'et': { label: 'Eesti', dateFnsLocale: 'et' },
   'fr': { label: 'Français', dateFnsLocale: 'fr' },
+  'he': { label: 'עברית', dateFnsLocale: 'he' },
   'hr': { label: 'Hrvatski', dateFnsLocale: 'hr' },
   'it': { label: 'Italiano', dateFnsLocale: 'it' },
   'lt': { label: 'Lietuvių', dateFnsLocale: 'lt' },
@@ -22,9 +23,10 @@ const languageCodeMap = {
   'pt-br': { label: 'Português (Brasil)', dateFnsLocale: 'ptBR' },
   'ru': { label: 'Русский', dateFnsLocale: 'ru' },
   'sv': { label: 'Svenska', dateFnsLocale: 'sv' },
+  'uk': { label: 'Українська', dateFnsLocale: 'uk' },
   'vi-vn': { label: 'Tiếng Việt', dateFnsLocale: 'vi' },
   'zh-cn': { label: '简体中文 (Simplified Chinese)', dateFnsLocale: 'zhCN' },
-  'zh-tw': { label: '正體中文 (Traditional Chinese)', dateFnsLocale: 'zhTW' },
+  'zh-tw': { label: '正體中文 (Traditional Chinese)', dateFnsLocale: 'zhTW' }
 }
 Vue.prototype.$languageCodeOptions = Object.keys(languageCodeMap).map(code => {
   return {
@@ -35,6 +37,7 @@ Vue.prototype.$languageCodeOptions = Object.keys(languageCodeMap).map(code => {
 
 // iTunes search API uses ISO 3166 country codes: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
 const podcastSearchRegionMap = {
+  'ua': { label: 'Україна' },
   'us': { label: 'United States' },
   'cn': { label: '中国' }
 }
