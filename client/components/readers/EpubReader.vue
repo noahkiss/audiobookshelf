@@ -63,6 +63,9 @@ export default {
     libraryItemId() {
       return this.libraryItem?.id
     },
+    allowScriptedContent() {
+      return this.$store.getters['libraries/getLibraryEpubsAllowScriptedContent']
+    },
     hasPrev() {
       return !this.rendition?.location?.atStart
     },
@@ -192,7 +195,7 @@ export default {
      */
     updateProgress(payload) {
       if (!this.keepProgress) return
-      this.$axios.$patch(`/api/me/progress/${this.libraryItemId}`, payload).catch((error) => {
+      this.$axios.$patch(`/api/me/progress/${this.libraryItemId}`, payload, { progress: false }).catch((error) => {
         console.error('EpubReader.updateProgress failed:', error)
       })
     },
@@ -316,7 +319,7 @@ export default {
       reader.rendition = reader.book.renderTo('viewer', {
         width: this.readerWidth,
         height: this.readerHeight * 0.8,
-        allowScriptedContent: true,
+        allowScriptedContent: this.allowScriptedContent,
         spread: 'auto',
         snap: true,
         manager: 'continuous',
