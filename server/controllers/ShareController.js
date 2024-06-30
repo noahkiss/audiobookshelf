@@ -1,7 +1,13 @@
+const uuidv4 = require('uuid').v4
+const Path = require('path')
+const { Op } = require('sequelize')
 const Logger = require('../Logger')
 const Database = require('../Database')
-const { Op } = require('sequelize')
 
+const { PlayMethod } = require('../utils/constants')
+const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
+
+const PlaybackSession = require('../objects/PlaybackSession')
 const ShareManager = require('../managers/ShareManager')
 
 class ShareController {
@@ -9,7 +15,7 @@ class ShareController {
 
   /**
    * Public route
-   * GET: /api/share/mediaitem/:slug
+   * GET: /api/share/:slug
    * Get media item share by slug
    *
    * @param {import('express').Request} req
@@ -27,18 +33,184 @@ class ShareController {
       return res.status(404).send('Media item share not found')
     }
 
-    try {
-      const mediaItemModel = mediaItemShare.mediaItemType === 'book' ? Database.bookModel : Database.podcastEpisodeModel
-      mediaItemShare.mediaItem = await mediaItemModel.findByPk(mediaItemShare.mediaItemId)
+    if (req.cookies.share_session_id) {
+      const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
+      if (playbackSession) {
+        Logger.debug(`[ShareController] Found share playback session ${req.cookies.share_session_id}`)
+        mediaItemShare.playbackSession = playbackSession.toJSONForClient()
+        return res.json(mediaItemShare)
+      } else {
+        Logger.info(`[ShareController] Share playback session not found with id ${req.cookies.share_session_id}`)
+        res.clearCookie('share_session_id')
+      }
+    }
 
-      if (!mediaItemShare.mediaItem) {
+    try {
+      const oldLibraryItem = await Database.mediaItemShareModel.getMediaItemsOldLibraryItem(mediaItemShare.mediaItemId, mediaItemShare.mediaItemType)
+
+      if (!oldLibraryItem) {
         return res.status(404).send('Media item not found')
       }
+
+      let startOffset = 0
+      const publicTracks = oldLibraryItem.media.includedAudioFiles.map((audioFile) => {
+        const audioTrack = {
+          index: audioFile.index,
+          startOffset,
+          duration: audioFile.duration,
+          title: audioFile.metadata.filename || '',
+          contentUrl: `${global.RouterBasePath}/public/share/${slug}/track/${audioFile.index}`,
+          mimeType: audioFile.mimeType,
+          codec: audioFile.codec || null,
+          metadata: audioFile.metadata.clone()
+        }
+        startOffset += audioTrack.duration
+        return audioTrack
+      })
+
+      const newPlaybackSession = new PlaybackSession()
+      newPlaybackSession.setData(oldLibraryItem, null, 'web-public', null, 0)
+      newPlaybackSession.audioTracks = publicTracks
+      newPlaybackSession.playMethod = PlayMethod.DIRECTPLAY
+      newPlaybackSession.shareSessionId = uuidv4() // New share session id
+      newPlaybackSession.mediaItemShareId = mediaItemShare.id
+      newPlaybackSession.coverAspectRatio = oldLibraryItem.librarySettings.coverAspectRatio
+
+      mediaItemShare.playbackSession = newPlaybackSession.toJSONForClient()
+      ShareManager.addOpenSharePlaybackSession(newPlaybackSession)
+
+      // 30 day cookie
+      res.cookie('share_session_id', newPlaybackSession.shareSessionId, { maxAge: 1000 * 60 * 60 * 24 * 30, httpOnly: true })
+
       res.json(mediaItemShare)
     } catch (error) {
       Logger.error(`[ShareController] Failed`, error)
       res.status(500).send('Internal server error')
     }
+  }
+
+  /**
+   * Public route - requires share_session_id cookie
+   *
+   * GET: /api/share/:slug/cover
+   * Get media item share cover image
+   *
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  async getMediaItemShareCoverImage(req, res) {
+    if (!req.cookies.share_session_id) {
+      return res.status(404).send('Share session not set')
+    }
+
+    const { slug } = req.params
+
+    const mediaItemShare = ShareManager.findBySlug(slug)
+    if (!mediaItemShare) {
+      return res.status(404)
+    }
+
+    const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
+    if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
+      res.clearCookie('share_session_id')
+      return res.status(404).send('Share session not found')
+    }
+
+    const coverPath = playbackSession.coverPath
+    if (!coverPath) {
+      return res.status(404).send('Cover image not found')
+    }
+
+    if (global.XAccel) {
+      const encodedURI = encodeUriPath(global.XAccel + coverPath)
+      Logger.debug(`Use X-Accel to serve static file ${encodedURI}`)
+      return res.status(204).header({ 'X-Accel-Redirect': encodedURI }).send()
+    }
+
+    res.sendFile(coverPath)
+  }
+
+  /**
+   * Public route - requires share_session_id cookie
+   *
+   * GET: /api/share/:slug/track/:index
+   * Get media item share audio track
+   *
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  async getMediaItemShareAudioTrack(req, res) {
+    if (!req.cookies.share_session_id) {
+      return res.status(404).send('Share session not set')
+    }
+
+    const { slug, index } = req.params
+
+    const mediaItemShare = ShareManager.findBySlug(slug)
+    if (!mediaItemShare) {
+      return res.status(404)
+    }
+
+    const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
+    if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
+      res.clearCookie('share_session_id')
+      return res.status(404).send('Share session not found')
+    }
+
+    const audioTrack = playbackSession.audioTracks.find((t) => t.index === parseInt(index))
+    if (!audioTrack) {
+      return res.status(404).send('Track not found')
+    }
+    const audioTrackPath = audioTrack.metadata.path
+
+    if (global.XAccel) {
+      const encodedURI = encodeUriPath(global.XAccel + audioTrackPath)
+      Logger.debug(`Use X-Accel to serve static file ${encodedURI}`)
+      return res.status(204).header({ 'X-Accel-Redirect': encodedURI }).send()
+    }
+
+    // Express does not set the correct mimetype for m4b files so use our defined mimetypes if available
+    const audioMimeType = getAudioMimeTypeFromExtname(Path.extname(audioTrackPath))
+    if (audioMimeType) {
+      res.setHeader('Content-Type', audioMimeType)
+    }
+    res.sendFile(audioTrackPath)
+  }
+
+  /**
+   * Public route - requires share_session_id cookie
+   *
+   * PATCH: /api/share/:slug/progress
+   * Update media item share progress
+   *
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   */
+  async updateMediaItemShareProgress(req, res) {
+    if (!req.cookies.share_session_id) {
+      return res.status(404).send('Share session not set')
+    }
+
+    const { slug } = req.params
+    const { currentTime } = req.body
+    if (currentTime === null || isNaN(currentTime) || currentTime < 0) {
+      return res.status(400).send('Invalid current time')
+    }
+
+    const mediaItemShare = ShareManager.findBySlug(slug)
+    if (!mediaItemShare) {
+      return res.status(404)
+    }
+
+    const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
+    if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
+      res.clearCookie('share_session_id')
+      return res.status(404).send('Share session not found')
+    }
+
+    playbackSession.currentTime = Math.min(currentTime, playbackSession.duration)
+    Logger.debug(`[ShareController] Update share playback session ${req.cookies.share_session_id} currentTime: ${playbackSession.currentTime}`)
+    res.sendStatus(204)
   }
 
   /**
@@ -68,7 +240,7 @@ class ShareController {
 
     try {
       // Check if the media item share already exists by slug or mediaItemId
-      const existingMediaItemShare = await Database.models.mediaItemShare.findOne({
+      const existingMediaItemShare = await Database.mediaItemShareModel.findOne({
         where: {
           [Op.or]: [{ slug }, { mediaItemId }]
         }
@@ -88,7 +260,7 @@ class ShareController {
         return res.status(404).send('Media item not found')
       }
 
-      const mediaItemShare = await Database.models.mediaItemShare.create({
+      const mediaItemShare = await Database.mediaItemShareModel.create({
         slug,
         expiresAt: expiresAt || null,
         mediaItemId,
@@ -119,7 +291,7 @@ class ShareController {
     }
 
     try {
-      const mediaItemShare = await Database.models.mediaItemShare.findByPk(req.params.id)
+      const mediaItemShare = await Database.mediaItemShareModel.findByPk(req.params.id)
       if (!mediaItemShare) {
         return res.status(404).send('Media item share not found')
       }
