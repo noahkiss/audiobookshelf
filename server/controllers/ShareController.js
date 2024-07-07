@@ -1,4 +1,4 @@
-const uuidv4 = require('uuid').v4
+const uuid = require('uuid')
 const Path = require('path')
 const { Op } = require('sequelize')
 const Logger = require('../Logger')
@@ -18,15 +18,20 @@ class ShareController {
    * GET: /api/share/:slug
    * Get media item share by slug
    *
+   * @this {import('../routers/PublicRouter')}
+   *
    * @param {import('express').Request} req
    * @param {import('express').Response} res
    */
   async getMediaItemShareBySlug(req, res) {
     const { slug } = req.params
+    // Optional start time
+    let startTime = req.query.t && !isNaN(req.query.t) ? Math.max(0, parseInt(req.query.t)) : 0
 
     const mediaItemShare = ShareManager.findBySlug(slug)
     if (!mediaItemShare) {
-      return res.status(404)
+      Logger.warn(`[ShareController] Media item share not found with slug ${slug}`)
+      return res.sendStatus(404)
     }
     if (mediaItemShare.expiresAt && mediaItemShare.expiresAt.valueOf() < Date.now()) {
       ShareManager.removeMediaItemShare(mediaItemShare.id)
@@ -35,13 +40,23 @@ class ShareController {
 
     if (req.cookies.share_session_id) {
       const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
+
       if (playbackSession) {
-        Logger.debug(`[ShareController] Found share playback session ${req.cookies.share_session_id}`)
-        mediaItemShare.playbackSession = playbackSession.toJSONForClient()
-        return res.json(mediaItemShare)
+        if (mediaItemShare.id === playbackSession.mediaItemShareId) {
+          Logger.debug(`[ShareController] Found share playback session ${req.cookies.share_session_id}`)
+          mediaItemShare.playbackSession = playbackSession.toJSONForClient()
+          return res.json(mediaItemShare)
+        } else {
+          // Changed media item share - close other session
+          Logger.debug(`[ShareController] Other playback session is already open for share session. Closing session "${playbackSession.displayTitle}"`)
+          ShareManager.closeSharePlaybackSession(playbackSession)
+        }
       } else {
         Logger.info(`[ShareController] Share playback session not found with id ${req.cookies.share_session_id}`)
-        res.clearCookie('share_session_id')
+        if (!uuid.validate(req.cookies.share_session_id) || uuid.version(req.cookies.share_session_id) !== 4) {
+          Logger.warn(`[ShareController] Invalid share session id ${req.cookies.share_session_id}`)
+          res.clearCookie('share_session_id')
+        }
       }
     }
 
@@ -68,11 +83,23 @@ class ShareController {
         return audioTrack
       })
 
+      if (startTime > startOffset) {
+        Logger.warn(`[ShareController] Start time ${startTime} is greater than total duration ${startOffset}`)
+        startTime = 0
+      }
+
+      const shareSessionId = req.cookies.share_session_id || uuid.v4()
+      const clientDeviceInfo = {
+        clientName: 'Abs Web Share',
+        deviceId: shareSessionId
+      }
+      const deviceInfo = await this.playbackSessionManager.getDeviceInfo(req, clientDeviceInfo)
+
       const newPlaybackSession = new PlaybackSession()
-      newPlaybackSession.setData(oldLibraryItem, null, 'web-public', null, 0)
+      newPlaybackSession.setData(oldLibraryItem, null, 'web-share', deviceInfo, startTime)
       newPlaybackSession.audioTracks = publicTracks
       newPlaybackSession.playMethod = PlayMethod.DIRECTPLAY
-      newPlaybackSession.shareSessionId = uuidv4() // New share session id
+      newPlaybackSession.shareSessionId = shareSessionId
       newPlaybackSession.mediaItemShareId = mediaItemShare.id
       newPlaybackSession.coverAspectRatio = oldLibraryItem.librarySettings.coverAspectRatio
 
@@ -112,7 +139,6 @@ class ShareController {
 
     const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
     if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
-      res.clearCookie('share_session_id')
       return res.status(404).send('Share session not found')
     }
 
@@ -153,7 +179,6 @@ class ShareController {
 
     const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
     if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
-      res.clearCookie('share_session_id')
       return res.status(404).send('Share session not found')
     }
 
@@ -204,11 +229,11 @@ class ShareController {
 
     const playbackSession = ShareManager.findPlaybackSessionBySessionId(req.cookies.share_session_id)
     if (!playbackSession || playbackSession.mediaItemShareId !== mediaItemShare.id) {
-      res.clearCookie('share_session_id')
       return res.status(404).send('Share session not found')
     }
 
     playbackSession.currentTime = Math.min(currentTime, playbackSession.duration)
+    playbackSession.updatedAt = Date.now()
     Logger.debug(`[ShareController] Update share playback session ${req.cookies.share_session_id} currentTime: ${playbackSession.currentTime}`)
     res.sendStatus(204)
   }

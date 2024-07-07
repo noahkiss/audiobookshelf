@@ -74,14 +74,14 @@ class Server {
     this.podcastManager = new PodcastManager(this.watcher, this.notificationManager)
     this.audioMetadataManager = new AudioMetadataMangaer()
     this.rssFeedManager = new RssFeedManager()
-    this.cronManager = new CronManager(this.podcastManager)
+    this.cronManager = new CronManager(this.podcastManager, this.playbackSessionManager)
     this.apiCacheManager = new ApiCacheManager()
     this.binaryManager = new BinaryManager()
 
     // Routers
     this.apiRouter = new ApiRouter(this)
     this.hlsRouter = new HlsRouter(this.auth, this.playbackSessionManager)
-    this.publicRouter = new PublicRouter()
+    this.publicRouter = new PublicRouter(this.playbackSessionManager)
 
     Logger.logManager = new LogManager()
 
@@ -104,6 +104,7 @@ class Server {
    */
   async init() {
     Logger.info('[Server] Init v' + version)
+    Logger.info('[Server] Node.js Version:', process.version)
 
     await this.playbackSessionManager.removeOrphanStreams()
 
